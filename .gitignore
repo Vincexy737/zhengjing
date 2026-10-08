@@ -38,7 +38,10 @@ debug.log
 *.log
 *.part
 *.noaudio.mp4
+
+# ---- Smoke-test byproducts (_smoke.py) ----
 _smoke_src.png
+_smoke_out.*
 _smoke_batch/
 
 # ---- OS / editor ----

@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
-"""将 RealESRGAN anime 6B 转成 ONNX（3通道输入，x4放大）"""
+"""构建期工具：将 RealESRGAN anime 6B 权重转成 ONNX（3通道输入，x4放大）。
+
+**运行应用不需要本脚本** —— `core/sr.py` 直接消费已转换好的
+`models/RealESRGAN_x4plus_anime_6B.onnx`。仅当你要自行重建该 onnx 时才用。
+
+依赖 torch（本项目运行期不需要，帧净.spec 里也显式 excludes）：
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+前置：把 RealESRGAN_x4plus_anime_6B.pth 放到 models/ 后运行
+    python tools/convert_sr.py
+"""
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import os
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+MODEL_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 PTH_PATH = os.path.join(MODEL_DIR, "RealESRGAN_x4plus_anime_6B.pth")
 ONNX_PATH = os.path.join(MODEL_DIR, "RealESRGAN_x4plus_anime_6B.onnx")
 
