@@ -4,7 +4,6 @@ from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
 datas = []
-datas += collect_data_files('imageio_ffmpeg')
 datas += collect_data_files('rapidocr_onnxruntime')
 # AI 修复模型随包内置，离线开箱即用（fp16 为 GPU 加速版，可选）
 _model = os.path.join(SPECPATH, 'models', 'big-lama.onnx')

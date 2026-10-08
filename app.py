@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-照片去水印 + 清晰度增强工具 · 专业版
-现代深色工作台布局：
+帧净 · 照片 AI 修复
+现代浅色工作台布局：
   顶栏品牌区 | 左侧分组导航 | 左预览画布 | 右侧属性卡片
 功能：
-  - 照片去水印：矩形/画笔选区；LaMa AI 智能修复（纹理结构还原，最清晰）
+  - 去水印：矩形/画笔选区；LaMa AI 智能修复（纹理结构还原，最清晰）
     或 FSR 频率选择性重建（质感佳，无需模型）
-  - 清晰度增强：多尺度锐化 + 双边滤波去噪 + Lanczos 超分辨率放大
-  - 更多功能页（裁剪/降噪等）注册在 ui/tabs/__init__.py，
-    由 main() 的侧边导航按需加载
+  - 清晰度增强：AI 超分辨率放大
+  - 更多功能页（降噪/老照片/裁剪/调色/抠图/批量等）注册在
+    ui/tabs/__init__.py，由 main() 的侧边导航按需加载
 """
 
 import math
@@ -46,10 +46,6 @@ def ui_post(fn):
     """后台线程把 fn 投递到主线程执行（线程安全，无阻塞）"""
     _DISPATCH_Q.put(fn)
 
-VIDEO_FILETYPES = [
-    ("视频文件", "*.mp4 *.mkv *.mov *.avi *.flv *.wmv *.ts *.m4v *.webm"),
-    ("所有文件", "*.*"),
-]
 IMAGE_FILETYPES = [
     ("图片文件", "*.jpg *.jpeg *.png *.bmp *.webp *.tif *.tiff"),
     ("所有文件", "*.*"),
@@ -197,7 +193,7 @@ def install_crash_log():
 def install_debug_log():
     """设置环境变量 ZHENGJING_DEBUG=1 时，把 core.* 的 debug 日志写入
     用户目录 debug.log，便于诊断「功能不可用但无明确原因」的后端降级
-    （模型缺失 / GPU 初始化失败 / 硬件编码器实测不可用等）。"""
+    （模型缺失 / GPU 初始化失败 / OpenCV 缺少 contrib 模块等）。"""
     import logging
     if not os.environ.get("ZHENGJING_DEBUG"):
         return
@@ -402,18 +398,6 @@ def shine_photo(w, h, color="#FFFFFF", peak=0.9):
     return _cache_photo(key, build)
 
 
-def rounded_thumb(bgr, size, radius=10):
-    """视频/图片缩略图：真圆角 + 渐变描边（用于媒体卡片）"""
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    im = Image.fromarray(rgb).resize(size, Image.LANCZOS).convert("RGBA")
-    mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=255)
-    out = Image.new("RGBA", size, (0, 0, 0, 0))
-    out.paste(im, (0, 0), mask)
-    return ImageTk.PhotoImage(out)
-
-
 # ----------------------------------------------------------------------
 # 极光底纹：画布最底层缓慢漂移的彩色光斑，给静态界面注入呼吸感
 # ----------------------------------------------------------------------
@@ -422,7 +406,7 @@ class AuroraLayer:
 
     只做 create_image + coords 平移，不重绘任何内容，
     因此开销极低（每 90ms 移动 3~4 张预渲染图），
-    不影响视频播放 / 蒙版涂抹的实时性。
+    不影响蒙版涂抹的实时性。
     """
 
     TAG = "aurora"
@@ -501,7 +485,7 @@ class AuroraLayer:
 
     def stop(self):
         """暂停漂移（画布被不透明内容覆盖时调用，避免底层移动
-        强制重绘上层大图，拖慢视频播放）"""
+        强制重绘上层大图，拖慢蒙版涂抹）"""
         if self._job is not None:
             try:
                 self.cv.after_cancel(self._job)
@@ -807,76 +791,6 @@ class Button(tk.Canvas):
     configure = config
 
 
-class PlayButton(tk.Canvas):
-    """圆形播放/暂停：未播放是渐变描边圆，播放时点亮极光渐变并透出光晕"""
-    SIZE = 46
-    PAD = 9                      # 给外发光预留的边距
-
-    def __init__(self, parent, command=None, bg=BG):
-        side = self.SIZE + self.PAD * 2
-        super().__init__(parent, width=side, height=side, bg=bg,
-                         highlightthickness=0, cursor="hand2")
-        self._cmd = command
-        self._playing = False
-        self._enabled = True
-        self._hover = False
-        self._photo = None
-        self._redraw()
-        self.bind("<Enter>", lambda e: self._set_hover(True))
-        self.bind("<Leave>", lambda e: self._set_hover(False))
-        self.bind("<ButtonRelease-1>", self._click)
-
-    def _redraw(self):
-        self.delete("all")
-        s, p = self.SIZE, self.PAD
-        c = p + s / 2
-        if not self._enabled:
-            self._photo = rounded_photo(s, s, s // 2, fill=PANEL_2,
-                                        outline=LINE, pad=p)
-            gcol = TEXT_3
-        elif self._playing:
-            grad = GRAD_H if self._hover else GRAD
-            self._photo = rounded_photo(s, s, s // 2, grad=grad, pad=p,
-                                        glow=(GLOW_C, 7, 0.38))
-            gcol = ON_BRAND
-        else:
-            self._photo = rounded_photo(
-                s, s, s // 2, pad=p,
-                fill=PANEL_3 if self._hover else PANEL_2,
-                outline=BRAND if self._hover else LINE_HI,
-                glow=(GLOW_C, 6, 0.26) if self._hover else None)
-            gcol = BRAND if self._hover else TEXT
-        self.create_image(0, 0, anchor="nw", image=self._photo)
-        if self._playing:
-            self.create_rectangle(c - 7, c - 8, c - 2, c + 8, fill=gcol,
-                                  outline="")
-            self.create_rectangle(c + 2, c - 8, c + 7, c + 8, fill=gcol,
-                                  outline="")
-        else:
-            self.create_polygon(c - 4, c - 9, c + 10, c, c - 4, c + 9,
-                                fill=gcol, outline="")
-
-    def _set_hover(self, on):
-        if self._enabled:
-            self._hover = on
-            self._redraw()
-
-    def _click(self, _e):
-        if self._enabled and self._cmd:
-            self._cmd()
-
-    def set_playing(self, flag):
-        if self._playing != flag:
-            self._playing = flag
-            self._redraw()
-
-    def set_enabled(self, on):
-        if self._enabled != on:
-            self._enabled = on
-            tk.Canvas.config(self, cursor="hand2" if on else "arrow")
-            self._redraw()
-
-
 class _SegItem(tk.Label):
     """分段控件中的单选项：胶囊底 + 文字，激活时铺极光渐变"""
 
@@ -985,67 +899,6 @@ class Segmented(tk.Canvas):
             it.set_active(val == cur)
 
 
-class SegChip(tk.Canvas):
-    """选区段标签：横向排列在时间线上方，点击选中，右侧 ✕ 直接删除"""
-
-    H = 30
-
-    def __init__(self, parent, text, on_pick, on_del, bg=BG):
-        self._font = ui_font(("Microsoft YaHei UI", 9))
-        self._text = text
-        self._on_pick = on_pick
-        self._on_del = on_del
-        self._active = False
-        self._hover = False
-        self._photo = None
-        w = self._font.measure(text) + 46
-        super().__init__(parent, width=w, height=self.H, bg=bg,
-                         highlightthickness=0, bd=0, cursor="hand2")
-        self._draw()
-        self.bind("<Enter>", lambda e: self._set_hover(True))
-        self.bind("<Leave>", lambda e: self._set_hover(False))
-        self.bind("<ButtonRelease-1>", self._click)
-
-    def _draw(self):
-        w = self._font.measure(self._text) + 46
-        h = self.H
-        if self._active:
-            self._photo = rounded_photo(w, h, h // 2, grad=GRAD)
-            fg = ON_BRAND
-        elif self._hover:
-            self._photo = framed_photo(w, h, h // 2, fill=PANEL_3,
-                                       border=GRAD)
-            fg = TEXT
-        else:
-            self._photo = framed_photo(w, h, h // 2, fill=PANEL_2,
-                                       border=GRAD_DIM)
-            fg = TEXT_2
-        self.delete("all")
-        self.create_image(0, 0, anchor="nw", image=self._photo)
-        self.create_text(12, h / 2, anchor="w", text=self._text,
-                         font=self._font, fill=fg)
-        xc, k = w - 17, 4
-        for dx, dy in ((k, k), (k, -k)):
-            self.create_line(xc - dx, h / 2 - dy, xc + dx, h / 2 + dy,
-                             fill=fg, width=2, capstyle="round")
-
-    def _set_hover(self, on):
-        if self._hover != on:
-            self._hover = on
-            self._draw()
-
-    def set_active(self, on):
-        if self._active != on:
-            self._active = on
-            self._draw()
-
-    def _click(self, e):
-        if e.x >= self.winfo_width() - 30:      # 命中右侧 ✕
-            self._on_del()
-        else:
-            self._on_pick()
-
-
 class Card(tk.Canvas):
     """圆角卡片：面板底 + 细描边 + 渐变圆点标题，内容挂到 self.body。
     高度随内容自适应，宽度随布局填充，悬停可亮边（set_hover）。"""
@@ -1152,174 +1005,6 @@ class ScrollFrame(tk.Frame):
         return False
 
 
-class MediaCard(Card):
-    """左侧媒体卡片：圆角缩略图 + 文件名 + 时长/分辨率"""
-
-    def __init__(self, parent, photo, name, meta, command):
-        super().__init__(parent, padx=8, pady=8, hoverable=True)
-        self._photo = photo   # 防 GC
-        tk.Canvas.config(self, cursor="hand2")
-        tk.Label(self.body, image=photo, bg=PANEL, bd=0).pack()
-        tk.Label(self.body, text=name, bg=PANEL, fg=TEXT,
-                 font=FONT_SM).pack(pady=(8, 0))
-        tk.Label(self.body, text=meta, bg=PANEL, fg=TEXT_2,
-                 font=FONT_SM).pack(pady=(2, 2))
-        for w in (self, *self.body.winfo_children()):
-            w.bind("<Button-1>", lambda e: command())
-
-
-class DropZone(tk.Canvas):
-    """左侧导入视频的投放区：虚线边框在悬停时流动，图标带光晕"""
-
-    def __init__(self, parent, command, width=212, height=112):
-        super().__init__(parent, width=width, height=height, bg=BG,
-                         highlightthickness=0, cursor="hand2")
-        self._cmd = command
-        self._zw, self._zh = width, height
-        self._hot = False
-        self._off = 0
-        self._anim = None
-        self._rect = None
-        self._glow = None
-        self._draw(False)
-        self.bind("<Enter>", lambda e: self._set_hot(True))
-        self.bind("<Leave>", lambda e: self._set_hot(False))
-        self.bind("<Button-1>", lambda e: command())
-        self.bind("<Destroy>", lambda e: self._stop_anim())
-
-    def _set_hot(self, on):
-        if self._hot == on:
-            return
-        self._hot = on
-        self._draw(on)
-        if on:
-            self._start_anim()
-        else:
-            self._stop_anim()
-
-    def _start_anim(self):
-        if self._anim is None:
-            self._anim = self.after(70, self._step)
-
-    def _stop_anim(self):
-        if self._anim is not None:
-            try:
-                self.after_cancel(self._anim)
-            except Exception:
-                pass
-            self._anim = None
-
-    def _step(self):
-        self._anim = None
-        if not self._hot or self._rect is None:
-            return
-        self._off = (self._off + 1) % 22
-        try:
-            self.itemconfig(self._rect, dashoffset=-self._off)
-        except tk.TclError:
-            return
-        self._anim = self.after(70, self._step)
-
-    def _draw(self, hot):
-        self.delete("all")
-        w, h = self._zw, self._zh
-        cx = w / 2
-        col = BRAND if hot else LINE_HI
-        self._rect = _rr(self, 2, 2, w - 3, h - 3, 14,
-                         fill=mix(PANEL_2, GLOW_C, 0.16 if hot else 0.0),
-                         outline=col, dash=(6, 5))
-        # 图标底光晕
-        self._glow = orb_photo(104, G2 if hot else GLOW_C,
-                               0.28 if hot else 0.10)
-        self.create_image(cx, 36, image=self._glow)
-        r = 17
-        self.create_oval(cx - r, 36 - r, cx + r, 36 + r, outline=col, width=2)
-        self.create_line(cx - 8, 36, cx + 8, 36, fill=col, width=2,
-                         capstyle="round")
-        self.create_line(cx, 28, cx, 44, fill=col, width=2, capstyle="round")
-        self.create_text(cx, 70, text="导入视频", fill=TEXT, font=FONT_BOLD)
-        self.create_text(cx, 90, text="MP4 / MKV / MOV / AVI …", fill=TEXT_2,
-                         font=FONT_SM)
-
-
-class Chip(tk.Canvas):
-    """圆角小徽章（on=所在底色，保证与背景无缝）"""
-
-    def __init__(self, parent, text, bg=PANEL_2, fg=TEXT_2, on=BG):
-        self._bg, self._fg, self._on = bg, fg, on
-        self._font = ui_font(("Microsoft YaHei UI", 9))
-        super().__init__(parent, bg=on, highlightthickness=0, bd=0)
-        self._photo = None
-        self._tid = None
-        self._render(text)
-
-    def _render(self, text):
-        w = max(self._font.measure(text) + 18, 22)
-        h = self._font.metrics("linespace") + 10
-        self.delete("all")
-        tk.Canvas.config(self, width=w, height=h)
-        if isinstance(self._bg, (list, tuple)):      # 传渐变色组则铺极光
-            self._photo = rounded_photo(w, h, h // 2, grad=self._bg)
-        else:
-            self._photo = rounded_photo(w, h, h // 2, fill=self._bg)
-        self.create_image(0, 0, anchor="nw", image=self._photo)
-        self._tid = self.create_text(w / 2, h / 2, text=text,
-                                     font=self._font, fill=self._fg)
-
-    def config(self, cnf=None, **kw):    # 支持 badge.config(text=...)
-        if cnf:
-            kw = dict(cnf, **kw)
-        text = kw.pop("text", None)
-        if text is not None:
-            self._render(text)
-        if kw:
-            tk.Canvas.config(self, **kw)
-
-    configure = config
-
-
-def chip(parent, text, bg=PANEL_2, fg=TEXT_2, on=BG):
-    return Chip(parent, text, bg, fg, on)
-
-
-def accent_bar(parent, h=15, colors=(G1, G3), bg=BG):
-    """标题前的渐变竖条（小面积点亮，标记分区起点）"""
-    cv = tk.Canvas(parent, width=4, height=h, bg=bg, highlightthickness=0,
-                   bd=0)
-    ph = rounded_photo(4, h, 2, grad=colors, vertical=True)
-    cv.create_image(0, 0, anchor="nw", image=ph)
-    cv._ph = ph
-    return cv
-
-
-class FramedBox(tk.Canvas):
-    """1px 渐变描边的容器：把系统控件（如 Listbox）套进自绘外框"""
-
-    def __init__(self, parent, height=90, radius=10, fill=PANEL_2,
-                 border=GRAD_DIM, pad=3, bg=PANEL):
-        super().__init__(parent, height=height, bg=bg, highlightthickness=0,
-                         bd=0)
-        self._radius, self._fill = radius, fill
-        self._border, self._pad = border, pad
-        self.body = tk.Frame(self, bg=fill)
-        self._win = self.create_window(pad + 1, pad + 1, window=self.body,
-                                       anchor="nw")
-        self.bind("<Configure>", self._cfg)
-
-    def _cfg(self, _e=None):
-        w, h = self.winfo_width(), self.winfo_height()
-        if w < 6 or h < 6:
-            return
-        self.delete("bg")
-        self._ph = framed_photo(w, h, self._radius, fill=self._fill,
-                                border=self._border)
-        self.create_image(0, 0, anchor="nw", image=self._ph, tags="bg")
-        self.itemconfigure(self._win,
-                           width=max(2, w - 2 * (self._pad + 1)),
-                           height=max(2, h - 2 * (self._pad + 1)))
-        self.tag_raise(self._win)
-
-
 class Switch(tk.Frame):
     """现代开关（替代系统复选框）：46×26 胶囊，开启时铺极光渐变并透出光晕"""
 
@@ -1373,44 +1058,6 @@ class Switch(tk.Frame):
 
     def get(self):
         return self._var.get()
-
-
-class RadioGroup(tk.Frame):
-    """自绘单选列表：选中项用主色圆点 + 主色文字，替代系统 Radiobutton"""
-
-    def __init__(self, parent, options, variable, bg=BG):
-        super().__init__(parent, bg=bg, bd=0)
-        self._var = variable
-        self._bg = bg
-        self._items = []
-        for val, label in options:
-            lb = tk.Label(self, bg=bg, font=FONT, anchor="w", padx=8,
-                          pady=7, cursor="hand2")
-            lb.pack(fill="x")
-            lb.bind("<Enter>", lambda e, l=lb: self._hover(l, True))
-            lb.bind("<Leave>", lambda e, l=lb: self._hover(l, False))
-            lb.bind("<ButtonRelease-1>", lambda e, v=val: self._pick(v))
-            self._items.append((val, label, lb))
-        variable.trace_add("write", lambda *a: self._sync())
-        self._sync()
-
-    def _hover(self, lb, on):
-        cur = self._var.get()
-        for val, _label, w in self._items:
-            if w is lb:
-                w.config(bg=PANEL_2 if (on or val == cur) else self._bg)
-                return
-
-    def _pick(self, v):
-        self._var.set(v)
-
-    def _sync(self):
-        cur = self._var.get()
-        for val, label, lb in self._items:
-            on = (val == cur)
-            lb.config(text=("●  " if on else "○  ") + label,
-                      fg=BRAND if on else TEXT_2,
-                      bg=PANEL_2 if on else self._bg)
 
 
 class Slider(tk.Canvas):
@@ -1773,63 +1420,14 @@ class ProgressBar(tk.Canvas):
         return tk.Canvas.cget(self, key)
 
 
-class NavButton(tk.Label):
-    """顶部导航：激活项为主色淡底胶囊 + 主色文字，其余为幽灵胶囊"""
-
-    PAD = 6
-
-    def __init__(self, parent, text, command, bg=TOPBAR):
-        self._font = ui_font(("Microsoft YaHei UI", 11))
-        self._bg = bg
-        self._active = False
-        self._hover = False
-        self._photo = None
-        w, h = len(text) * 11 + 28, 34
-        super().__init__(parent, text=text, bg=bg, cursor="hand2",
-                         compound="center", font=self._font,
-                         padx=0, pady=0,
-                         width=w + self.PAD * 2, height=h + self.PAD * 2)
-        self._draw()
-        self.bind("<Enter>", lambda e: self._set_hover(True))
-        self.bind("<Leave>", lambda e: self._set_hover(False))
-        self.bind("<ButtonRelease-1>", lambda e: command())
-
-    def _draw(self):
-        w, h = len(self.cget("text")) * 11 + 28, 34
-        p = self.PAD
-        if self._active:
-            self._photo = rounded_photo(w, h, 10, fill=BRAND_DK, pad=p)
-            fg = BRAND
-        elif self._hover:
-            self._photo = rounded_photo(w, h, 10, fill=PANEL_3, pad=p)
-            fg = TEXT
-        else:
-            self._photo = rounded_photo(w, h, 10, pad=p)
-            fg = TEXT_2
-        self.configure(
-            image=self._photo, fg=fg, width=w + p * 2, height=h + p * 2,
-            font=ui_font(("Microsoft YaHei UI", 11,
-                          "bold" if self._active else "normal")))
-
-    def _set_hover(self, on):
-        if self._hover != on:
-            self._hover = on
-            self._draw()
-
-    def set_active(self, on):
-        if self._active != on:
-            self._active = on
-            self._draw()
-
-
 # ======================================================================
-# 可复用的选区编辑画布（照片页与视频编辑器共用）
+# 可复用的选区编辑画布（去水印页与物体消除页共用）
 # ======================================================================
 class RegionEditor(ttk.Frame):
-    """显示图片/视频帧，支持矩形框选与画笔涂抹生成蒙版。
-    渲染分层：底图 image_item 常驻（播放时仅 itemconfig 换图，零重建）。"""
+    """显示图片，支持矩形框选与画笔涂抹生成蒙版。
+    渲染分层：底图 image_item 常驻，刷新时仅 itemconfig 换图，零重建。"""
 
-    def __init__(self, parent, show_bar=True):
+    def __init__(self, parent):
         super().__init__(parent)
         self.image = None          # 当前底图 BGR
         self.mask = None           # 与底图同尺寸的 uint8 蒙版
@@ -1855,13 +1453,12 @@ class RegionEditor(ttk.Frame):
         self._overlay_mask = True  # 是否叠加显示红色选区蒙版
         self.placeholder = ""
         self._ph_item = None
-        self._build_ui(show_bar)
+        self._build_ui()
 
     # ------------------------------------------------------------------
-    def _build_ui(self, show_bar=False):
+    def _build_ui(self):
         """只保留画布：工具/参数统一由右侧属性面板承载，两页结构一致。
         画布外再套一层渐变描边框，底层铺缓慢漂移的极光光斑。"""
-        self.info_label = None
         self._aurora = None
         self.wrap = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0)
         self.wrap.pack(fill="both", expand=True, padx=12, pady=(10, 12))
@@ -1962,11 +1559,6 @@ class RegionEditor(ttk.Frame):
         self._last_size = None
         self._render()
 
-    def update_image_keep_mask(self, img_bgr):
-        """仅更新底图（保留已画蒙版）；视频播放高频路径"""
-        self.image = img_bgr
-        self._render(fast=True)
-
     def clear_mask(self):
         if self.mask is not None:
             self.mask[:] = 0
@@ -1986,11 +1578,11 @@ class RegionEditor(ttk.Frame):
         return self.mask
 
     # ------------------------------------------------------------------
-    def _render(self, fast=False):
+    def _render(self):
         """把底图 + 红色半透明蒙版渲染到画布。
-        fast=True（播放路径）：跳过浮层刷新；无蒙版时不做整幅拷贝。
-        蒙版上色在「显示分辨率」上做：大图不再每帧对全分辨率原图
-        做整幅拷贝+上色，只缩放底图与蒙版后着色，照片页画笔涂抹
+
+        蒙版上色在「显示分辨率」上做：大图不再对全分辨率原图
+        做整幅拷贝+上色，只缩放底图与蒙版后着色，画笔涂抹
         与清除选区因此流畅得多（真实蒙版仍保留全分辨率供处理）。"""
         if self.image is None:
             return
@@ -2001,13 +1593,10 @@ class RegionEditor(ttk.Frame):
         self.scale = min(1.0, cw / w, ch / h)
         if self.scale < 1.0:
             nw, nh = max(1, int(w * self.scale)), max(1, int(h * self.scale))
-            # 播放路径用 LINEAR（每帧的显示缩放，肉眼不可辨且快得多）；
-            # 静态/交互路径保持 AREA 以保质量
-            interp = cv2.INTER_LINEAR if fast else cv2.INTER_AREA
-            key = (id(self.image), nw, nh, interp)
+            key = (id(self.image), nw, nh)
             if self._base_key != key:
                 self._base = cv2.resize(self.image, (nw, nh),
-                                        interpolation=interp)
+                                        interpolation=cv2.INTER_AREA)
                 self._base_key = key
             if self._overlay_mask and self._mask_has:
                 disp = self._base.copy()      # 显示分辨率拷贝（便宜）
@@ -2037,30 +1626,27 @@ class RegionEditor(ttk.Frame):
         else:
             self.canvas.itemconfig(self._img_item, image=self._tk_img)
             self.canvas.coords(self._img_item, ox, oy)
-        if not fast:
-            # 左上角信息胶囊：原图尺寸 + 当前缩放
-            # 信息没变化时跳过刷新（画笔涂抹/选区拖动的高频路径上，
-            # 省去每帧 itemconfig + 两次 tag_raise 的 Tcl 开销）
-            info = f"{w}×{h}" + ("" if self.scale >= 0.999
-                                 else f" · 缩放 {self.scale:.0%}")
-            if self._ovl_info != info or self._ovl_bgi is None:
-                self._ovl_info = info
-                bw = ui_font(FONT_SM).measure(info) + 18
-                self._ovl_bg = framed_photo(bw, 22, 11,
-                                            fill=mix(PANEL_2, BG_WELL, 0.45),
-                                            border=GRAD_DIM)
-                if self._ovl_bgi is None:
-                    self._ovl_bgi = self.canvas.create_image(
-                        12, 12, anchor="nw", image=self._ovl_bg)
-                    self._ovl = self.canvas.create_text(
-                        21, 23, anchor="w", fill=TEXT_2, font=FONT_SM)
-                else:
-                    self.canvas.itemconfig(self._ovl_bgi, image=self._ovl_bg)
-                self.canvas.itemconfig(self._ovl, text=info)
-                self.canvas.tag_raise(self._ovl_bgi)
-                self.canvas.tag_raise(self._ovl)
-                if self.info_label is not None:
-                    self.info_label.config(text=f"原图尺寸 {w}×{h}")
+        # 左上角信息胶囊：原图尺寸 + 当前缩放
+        # 信息没变化时跳过刷新（画笔涂抹/选区拖动的高频路径上，
+        # 省去每帧 itemconfig + 两次 tag_raise 的 Tcl 开销）
+        info = f"{w}×{h}" + ("" if self.scale >= 0.999
+                             else f" · 缩放 {self.scale:.0%}")
+        if self._ovl_info != info or self._ovl_bgi is None:
+            self._ovl_info = info
+            bw = ui_font(FONT_SM).measure(info) + 18
+            self._ovl_bg = framed_photo(bw, 22, 11,
+                                        fill=mix(PANEL_2, BG_WELL, 0.45),
+                                        border=GRAD_DIM)
+            if self._ovl_bgi is None:
+                self._ovl_bgi = self.canvas.create_image(
+                    12, 12, anchor="nw", image=self._ovl_bg)
+                self._ovl = self.canvas.create_text(
+                    21, 23, anchor="w", fill=TEXT_2, font=FONT_SM)
+            else:
+                self.canvas.itemconfig(self._ovl_bgi, image=self._ovl_bg)
+            self.canvas.itemconfig(self._ovl, text=info)
+            self.canvas.tag_raise(self._ovl_bgi)
+            self.canvas.tag_raise(self._ovl)
 
     def _on_configure(self, event):
         if self.image is None:
@@ -2197,7 +1783,7 @@ class PhotoTab(ttk.Frame):
         self.editor.set_placeholder(
             "打开一张图片\n\n点「一键自动去水印」自动检测并去除文字水印")
 
-        # ---- 右：参数面板（主操作固定在底部，与视频页一致）----
+        # ---- 历史栈（修复前的底图）放在功能页一侧，便于切换）
         right = tk.Frame(self, width=self.RIGHT_W, bg=BG)
         right.grid(row=0, column=1, sticky="ns")
         right.grid_propagate(False)
@@ -2591,7 +2177,7 @@ class EnhanceTab(ttk.Frame):
 
         left = tk.Frame(self, bg=BG)
         left.grid(row=0, column=0, sticky="nsew")
-        self.editor = RegionEditor(left, show_bar=False)
+        self.editor = RegionEditor(left)
         self.editor.pack(fill="both", expand=True, padx=(0, 4))
         self.editor.set_placeholder("打开一张图片开始\n\n增强清晰度、提升细节")
 
@@ -2905,7 +2491,7 @@ def main():
                 v.pack_forget()
         nav.set_active(key)
 
-    # 右侧：就绪呼吸灯 + 编码器徽章
+    # 右侧：就绪呼吸灯
     right = tk.Frame(topbar, bg=TOPBAR)
     dot_cv = tk.Canvas(right, width=18, height=18, bg=TOPBAR,
                        highlightthickness=0, bd=0)
@@ -2915,19 +2501,6 @@ def main():
     dot_cv.pack(side="right", padx=(0, 8))
     tk.Label(right, text="就绪", bg=TOPBAR, fg=TEXT_2,
              font=FONT_SM).pack(side="right", padx=(0, 16))
-    enc_chip = chip(right, "编码器 检测中…", on=TOPBAR)
-    enc_chip.pack(side="right", padx=8)
-
-    def _enc_ready():
-        # 编码器实测需拉起 ffmpeg 子进程（最多 1~3 秒），放后台线程，
-        # 不再阻塞主线程把窗口卡在启动阶段
-        try:
-            name = processor.detect_encoder()[2]
-        except Exception:
-            name = "x264"
-        ui_post(lambda: enc_chip.config(text=f"编码器 {name}"))
-
-    threading.Thread(target=_enc_ready, daemon=True).start()
     right_win = topbar.create_window(0, TOP_H / 2, window=right, anchor="e",
                                      tags="win")
 

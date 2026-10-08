@@ -1,6 +1,6 @@
 # 帧净 · 照片 AI 修复
 
-Windows 桌面端的照片 / 视频修复工具：去水印、清晰度增强、降噪、老照片修复、抠图等。
+Windows 桌面端的照片修复工具：去水印、清晰度增强、降噪、老照片修复、抠图等。
 纯 Python + Tkinter 实现，界面控件全部自绘，离线可用（模型随包或本地放置）。
 
 ![platform](https://img.shields.io/badge/platform-Windows-blue) ![python](https://img.shields.io/badge/python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT-green)
@@ -19,15 +19,6 @@ Windows 桌面端的照片 / 视频修复工具：去水印、清晰度增强、
 | AI 实验室 | AI 抠图 | RMBG-1.4 发丝级边缘；U²-Net 轻量备选 |
 | | 物体消除 | 框选目标后智能填充 |
 | 批量处理 | 批量任务 | 多图队列，支持格式/尺寸/预设批量套用 |
-
-## 视频处理（暂未接入界面）
-
-`core/processor.py` 中实现了完整的视频管线：`process_video` 逐帧修复、
-`_temporal` 时域多帧重建、`calibrate_alpha` 半透明水印透明度标定、
-`strip_subtitle_stream` 软字幕剥离、`AudioPlayer` 音轨预览。
-
-**这些函数当前没有任何界面入口**（`app.py` 与 `ui/` 均未引用），
-需自行调用或另行开发界面。
 
 ## 运行
 
@@ -93,7 +84,7 @@ pyinstaller 帧净.spec
 ```
 app.py            主窗口、自绘控件库、去水印页 / 清晰度增强页
 core/
-  processor.py    修复核心、编解码、编码器探测、视频逐帧管线
+  processor.py    修复核心（AI/FSR/经典三引擎）、水印自动检测
   lama.py         LaMa ONNX 引擎（CUDA > DirectML > CPU）
   sr.py           AI 超分（tile 分块 + feather 融合）
   imglib.py       中文路径安全读写、EXIF 纠正、按体积压缩
@@ -112,7 +103,6 @@ tools/            构建期辅助脚本
 opencv-contrib-python   # 需 contrib：FSR 修复在 cv2.xphoto
 numpy
 Pillow
-imageio-ffmpeg          # 内置 ffmpeg，无需单独安装
 rapidocr-onnxruntime    # OCR 水印检测，缺失则该功能降级
 onnxruntime-gpu         # CUDA > DirectML > CPU 自动选择，均不可用时回退 CPU
 ```
@@ -122,9 +112,8 @@ onnxruntime-gpu         # CUDA > DirectML > CPU 自动选择，均不可用时�
 
 ## 说明
 
-- 面向 Windows 开发与验证，未在其它平台测试。视频音轨预览依赖 `winsound`
-  （Windows 专有），桌面快捷方式脚本依赖 COM。
-- 编码器自动探测 NVENC / QSV / AMF，逐个实测可用性，失败降级到 x264。
+- 面向 Windows 开发与验证，未在其它平台测试。桌面快捷方式脚本依赖 COM，
+  应用主体无 Windows 专有 API 调用。
 - 调试日志：设置环境变量 `ZHENGJING_DEBUG=1`，日志写入 `%LOCALAPPDATA%\帧净\debug.log`。
 
 ## License

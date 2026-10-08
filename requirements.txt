@@ -1,7 +1,6 @@
 opencv-contrib-python>=4.8,<5
 numpy>=1.24,<3
 Pillow>=10.0
-imageio-ffmpeg>=0.4.9
 
 # OCR 水印检测（core.processor.detect_watermark_ocr）。
 # 缺失时该功能静默降级为不可用，不影响其余功能。
