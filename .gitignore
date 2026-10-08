@@ -1,0 +1,56 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+.Python
+
+# ---- PyInstaller build outputs ----
+build/
+dist/
+*.manifest
+
+# ---- Deployed application (onedir/installed copy, ~4.4GB) ----
+/帧净/
+
+# ---- AI model binaries (large; obtain separately, spec bundles from here) ----
+models/*.onnx
+models/*.onnx.data
+models/*.pth
+models/*.pt
+models/*.bin
+models/*.safetensors
+models/*.engine
+# keep the models/ folder and any notes
+!models/.gitkeep
+!models/README*
+!models/*.md
+!models/*.txt
+
+# ---- Code-graph tool cache ----
+.codegraph/
+
+# ---- Runtime logs & temp ----
+crash.log
+debug.log
+*.log
+*.part
+*.noaudio.mp4
+_smoke_src.png
+_smoke_batch/
+
+# ---- OS / editor ----
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ---- Stray / backup assets (app only uses assets/icon.png & icon.ico) ----
+*.bak
+assets/1788*
+assets/resources/
+
