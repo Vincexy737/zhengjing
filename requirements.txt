@@ -3,6 +3,10 @@ numpy>=1.24,<3
 Pillow>=10.0
 imageio-ffmpeg>=0.4.9
 
+# OCR 水印检测（core.processor.detect_watermark_ocr）。
+# 缺失时该功能静默降级为不可用，不影响其余功能。
+rapidocr-onnxruntime>=1.3
+
 # ----------------------------------------------------------------------
 # AI 推理后端（onnxruntime）。
 #   应用运行时按 CUDA(NVIDIA) > DirectML(通用GPU) > CPU 自动选择，
